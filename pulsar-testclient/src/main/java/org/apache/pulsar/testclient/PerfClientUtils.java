@@ -80,8 +80,8 @@ public class PerfClientUtils {
                 .openTelemetry(AutoConfiguredOpenTelemetrySdk.builder()
                         .build().getOpenTelemetrySdk());
 
-        if (arguments.useKeystoreTls != null) {
-            clientBuilder.useKeyStoreTls(arguments.useKeystoreTls);
+        if (arguments.useKeyStoreTls != null) {
+            clientBuilder.useKeyStoreTls(arguments.useKeyStoreTls);
             clientBuilder.tlsTrustStoreType(arguments.tlsTrustStoreType);
             clientBuilder.tlsTrustStorePath(arguments.tlsTrustStorePath);
             clientBuilder.tlsTrustStorePassword(arguments.tlsTrustStorePassword);
@@ -117,8 +117,8 @@ public class PerfClientUtils {
         PulsarAdminBuilder pulsarAdminBuilder = PulsarAdmin.builder()
                 .serviceHttpUrl(adminUrl);
 
-        if (arguments.useKeystoreTls != null) {
-            pulsarAdminBuilder.useKeyStoreTls(arguments.useKeystoreTls);
+        if (arguments.useKeyStoreTls != null) {
+            pulsarAdminBuilder.useKeyStoreTls(arguments.useKeyStoreTls);
             pulsarAdminBuilder.tlsTrustStoreType(arguments.tlsTrustStoreType);
             pulsarAdminBuilder.tlsTrustStorePath(arguments.tlsTrustStorePath);
             pulsarAdminBuilder.tlsTrustStorePassword(arguments.tlsTrustStorePassword);
