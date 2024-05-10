@@ -72,6 +72,14 @@ public class PerfClientUtils {
                 .serviceUrl(arguments.serviceURL)
                 .connectionsPerBroker(arguments.maxConnections)
                 .ioThreads(arguments.ioThreads)
+                .useKeyStoreTls(arguments.useKeyStoreTls)
+                .tlsTrustStoreType(arguments.tlsTrustStoreType)
+                .tlsTrustStorePath(arguments.tlsTrustStorePath)
+                .tlsTrustStorePassword(arguments.tlsTrustStorePassword)
+                .tlsKeyStoreType(arguments.tlsKeyStoreType)
+                .tlsKeyStorePath(arguments.tlsKeyStorePath)
+                .tlsKeyStorePassword(arguments.tlsKeyStorePassword)
+                .tlsTrustCertsFilePath(arguments.tlsTrustCertsFilePath)
                 .statsInterval(arguments.statsIntervalSeconds, TimeUnit.SECONDS)
                 .enableBusyWait(arguments.enableBusyWait)
                 .listenerThreads(arguments.listenerThreads)
@@ -79,18 +87,6 @@ public class PerfClientUtils {
                 .proxyServiceUrl(arguments.proxyServiceURL, arguments.proxyProtocol)
                 .openTelemetry(AutoConfiguredOpenTelemetrySdk.builder()
                         .build().getOpenTelemetrySdk());
-
-        if (arguments.useKeyStoreTls) {
-            clientBuilder.useKeyStoreTls(arguments.useKeyStoreTls);
-            clientBuilder.tlsTrustStoreType(arguments.tlsTrustStoreType);
-            clientBuilder.tlsTrustStorePath(arguments.tlsTrustStorePath);
-            clientBuilder.tlsTrustStorePassword(arguments.tlsTrustStorePassword);
-            clientBuilder.tlsKeyStoreType(arguments.tlsKeyStoreType);
-            clientBuilder.tlsKeyStorePath(arguments.tlsKeyStorePath);
-            clientBuilder.tlsKeyStorePassword(arguments.tlsKeyStorePassword);
-        } else {
-            clientBuilder.tlsTrustCertsFilePath(arguments.tlsTrustCertsFilePath);
-        }
 
         if (isNotBlank(arguments.authPluginClassName)) {
             clientBuilder.authentication(arguments.authPluginClassName, arguments.authParams);
@@ -115,19 +111,15 @@ public class PerfClientUtils {
             throws PulsarClientException.UnsupportedAuthenticationException {
 
         PulsarAdminBuilder pulsarAdminBuilder = PulsarAdmin.builder()
+                .useKeyStoreTls(arguments.useKeyStoreTls)
+                .tlsTrustStoreType(arguments.tlsTrustStoreType)
+                .tlsTrustStorePath(arguments.tlsTrustStorePath)
+                .tlsTrustStorePassword(arguments.tlsTrustStorePassword)
+                .tlsKeyStoreType(arguments.tlsKeyStoreType)
+                .tlsKeyStorePath(arguments.tlsKeyStorePath)
+                .tlsKeyStorePassword(arguments.tlsKeyStorePassword)
+                .tlsTrustCertsFilePath(arguments.tlsTrustCertsFilePath)
                 .serviceHttpUrl(adminUrl);
-
-        if (arguments.useKeyStoreTls) {
-            pulsarAdminBuilder.useKeyStoreTls(arguments.useKeyStoreTls);
-            pulsarAdminBuilder.tlsTrustStoreType(arguments.tlsTrustStoreType);
-            pulsarAdminBuilder.tlsTrustStorePath(arguments.tlsTrustStorePath);
-            pulsarAdminBuilder.tlsTrustStorePassword(arguments.tlsTrustStorePassword);
-            pulsarAdminBuilder.tlsKeyStoreType(arguments.tlsKeyStoreType);
-            pulsarAdminBuilder.tlsKeyStorePath(arguments.tlsKeyStorePath);
-            pulsarAdminBuilder.tlsKeyStorePassword(arguments.tlsKeyStorePassword);
-        } else {
-            pulsarAdminBuilder.tlsTrustCertsFilePath(arguments.tlsTrustCertsFilePath);
-        }
 
         if (isNotBlank(arguments.authPluginClassName)) {
             pulsarAdminBuilder.authentication(arguments.authPluginClassName, arguments.authParams);
