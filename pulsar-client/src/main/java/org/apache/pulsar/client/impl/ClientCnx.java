@@ -191,6 +191,8 @@ public class ClientCnx extends PulsarHandler {
     protected AuthenticationDataProvider authenticationDataProvider;
     private TransactionBufferHandler transactionBufferHandler;
     private boolean supportsTopicWatchers;
+    @Getter
+    private boolean supportsGetPartitionedMetadataWithoutAutoCreation;
 
     /** Idle stat. **/
     @Getter
@@ -400,6 +402,9 @@ public class ClientCnx extends PulsarHandler {
 
         supportsTopicWatchers =
             connected.hasFeatureFlags() && connected.getFeatureFlags().isSupportsTopicWatchers();
+        supportsGetPartitionedMetadataWithoutAutoCreation =
+            connected.hasFeatureFlags()
+                    && connected.getFeatureFlags().isSupportsGetPartitionedMetadataWithoutAutoCreation();
 
         // set remote protocol version to the correct version before we complete the connection future
         setRemoteEndpointProtocolVersion(connected.getProtocolVersion());
@@ -705,9 +710,12 @@ public class ClientCnx extends PulsarHandler {
     @Override
     protected void handleTopicMigrated(CommandTopicMigrated commandTopicMigrated) {
         final long resourceId = commandTopicMigrated.getResourceId();
-        final String serviceUrl = commandTopicMigrated.getBrokerServiceUrl();
-        final String serviceUrlTls = commandTopicMigrated.getBrokerServiceUrlTls();
-
+        final String serviceUrl = commandTopicMigrated.hasBrokerServiceUrl()
+                ? commandTopicMigrated.getBrokerServiceUrl()
+                : null;
+        final String serviceUrlTls = commandTopicMigrated.hasBrokerServiceUrlTls()
+                ? commandTopicMigrated.getBrokerServiceUrlTls()
+                : null;
         HandlerState resource = commandTopicMigrated.getResourceType() == ResourceType.Producer
                 ? producers.get(resourceId)
                 : consumers.get(resourceId);
@@ -778,11 +786,9 @@ public class ClientCnx extends PulsarHandler {
         case NotAllowedError:
             producers.get(producerId).recoverNotAllowedError(sequenceId, sendError.getMessage());
             break;
-
         default:
-            // By default, for transient error, let the reconnection logic
-            // to take place and re-establish the produce again
-            ctx.close();
+            // don't close this ctx, otherwise it will close all consumers and producers which use this ctx
+            producers.get(producerId).connectionClosed(this, Optional.empty(), Optional.empty());
         }
     }
 

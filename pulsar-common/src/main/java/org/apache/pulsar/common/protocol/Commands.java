@@ -88,6 +88,7 @@ import org.apache.pulsar.common.api.proto.CommandSubscribe;
 import org.apache.pulsar.common.api.proto.CommandSubscribe.InitialPosition;
 import org.apache.pulsar.common.api.proto.CommandSubscribe.SubType;
 import org.apache.pulsar.common.api.proto.CommandTcClientConnectResponse;
+import org.apache.pulsar.common.api.proto.CommandTopicMigrated;
 import org.apache.pulsar.common.api.proto.CommandTopicMigrated.ResourceType;
 import org.apache.pulsar.common.api.proto.FeatureFlags;
 import org.apache.pulsar.common.api.proto.IntRange;
@@ -190,6 +191,7 @@ public class Commands {
         flags.setSupportsAuthRefresh(true);
         flags.setSupportsBrokerEntryMetadata(true);
         flags.setSupportsPartialProducer(true);
+        flags.setSupportsGetPartitionedMetadataWithoutAutoCreation(true);
     }
 
     public static ByteBuf newConnect(String authMethodName, String authData, int protocolVersion, String libVersion,
@@ -300,6 +302,7 @@ public class Commands {
         connected.setProtocolVersion(versionToAdvertise);
 
         connected.setFeatureFlags().setSupportsTopicWatchers(supportsTopicWatchers);
+        connected.setFeatureFlags().setSupportsGetPartitionedMetadataWithoutAutoCreation(true);
         return cmd;
     }
 
@@ -580,7 +583,7 @@ public class Commands {
 
     public static ByteBuf newSubscribe(String topic, String subscription, long consumerId, long requestId,
             SubType subType, int priorityLevel, String consumerName, boolean isDurable, MessageIdData startMessageId,
-            Map<String, String> metadata, boolean readCompacted, boolean isReplicated,
+            Map<String, String> metadata, boolean readCompacted, Boolean isReplicated,
             InitialPosition subscriptionInitialPosition, long startMessageRollbackDurationInSec, SchemaInfo schemaInfo,
             boolean createTopicIfDoesNotExist) {
         return newSubscribe(topic, subscription, consumerId, requestId, subType, priorityLevel, consumerName,
@@ -591,7 +594,7 @@ public class Commands {
 
     public static ByteBuf newSubscribe(String topic, String subscription, long consumerId, long requestId,
                SubType subType, int priorityLevel, String consumerName, boolean isDurable, MessageIdData startMessageId,
-               Map<String, String> metadata, boolean readCompacted, boolean isReplicated,
+               Map<String, String> metadata, boolean readCompacted, Boolean isReplicated,
                InitialPosition subscriptionInitialPosition, long startMessageRollbackDurationInSec,
                SchemaInfo schemaInfo, boolean createTopicIfDoesNotExist, KeySharedPolicy keySharedPolicy,
                Map<String, String> subscriptionProperties, long consumerEpoch) {
@@ -607,9 +610,11 @@ public class Commands {
                 .setDurable(isDurable)
                 .setReadCompacted(readCompacted)
                 .setInitialPosition(subscriptionInitialPosition)
-                .setReplicateSubscriptionState(isReplicated)
                 .setForceTopicCreation(createTopicIfDoesNotExist)
                 .setConsumerEpoch(consumerEpoch);
+        if (isReplicated != null) {
+            subscribe.setReplicateSubscriptionState(isReplicated);
+        }
 
         if (subscriptionProperties != null && !subscriptionProperties.isEmpty()) {
             List<KeyValue> keyValues = new ArrayList<>();
@@ -766,11 +771,14 @@ public class Commands {
 
     public static ByteBuf newTopicMigrated(ResourceType type, long resourceId, String brokerUrl, String brokerUrlTls) {
         BaseCommand cmd = localCmd(Type.TOPIC_MIGRATED);
-        cmd.setTopicMigrated()
-            .setResourceType(type)
-            .setResourceId(resourceId)
-            .setBrokerServiceUrl(brokerUrl)
-            .setBrokerServiceUrlTls(brokerUrlTls);
+        CommandTopicMigrated migratedCmd = cmd.setTopicMigrated();
+        migratedCmd.setResourceType(type).setResourceId(resourceId);
+        if (StringUtils.isNotBlank(brokerUrl)) {
+            migratedCmd.setBrokerServiceUrl(brokerUrl);
+        }
+        if (StringUtils.isNotBlank(brokerUrlTls)) {
+            migratedCmd.setBrokerServiceUrlTls(brokerUrlTls);
+        }
         return serializeWithSize(cmd);
     }
 
@@ -910,11 +918,13 @@ public class Commands {
         return serializeWithSize(newPartitionMetadataResponseCommand(error, errorMsg, requestId));
     }
 
-    public static ByteBuf newPartitionMetadataRequest(String topic, long requestId) {
+    public static ByteBuf newPartitionMetadataRequest(String topic, long requestId,
+                                                      boolean metadataAutoCreationEnabled) {
         BaseCommand cmd = localCmd(Type.PARTITIONED_METADATA);
         cmd.setPartitionMetadata()
                 .setTopic(topic)
-                .setRequestId(requestId);
+                .setRequestId(requestId)
+                .setMetadataAutoCreationEnabled(metadataAutoCreationEnabled);
         return serializeWithSize(cmd);
     }
 
@@ -932,10 +942,11 @@ public class Commands {
     }
 
     public static ByteBuf newLookup(String topic, boolean authoritative, long requestId) {
-        return newLookup(topic, null, authoritative, requestId);
+        return newLookup(topic, null, authoritative, requestId, null);
     }
 
-    public static ByteBuf newLookup(String topic, String listenerName, boolean authoritative, long requestId) {
+    public static ByteBuf newLookup(String topic, String listenerName, boolean authoritative, long requestId,
+                                    Map<String, String> properties) {
         BaseCommand cmd = localCmd(Type.LOOKUP);
         CommandLookupTopic lookup = cmd.setLookupTopic()
                 .setTopic(topic)
@@ -943,6 +954,9 @@ public class Commands {
                 .setAuthoritative(authoritative);
         if (StringUtils.isNotBlank(listenerName)) {
             lookup.setAdvertisedListenerName(listenerName);
+        }
+        if (properties != null) {
+            properties.forEach((key, value) -> lookup.addProperty().setKey(key).setValue(value));
         }
         return serializeWithSize(cmd);
     }
@@ -1705,6 +1719,7 @@ public class Commands {
         //   |         2 bytes                    |       4 bytes              |    BROKER_ENTRY_METADATA_SIZE bytes   |
 
         BrokerEntryMetadata brokerEntryMetadata = BROKER_ENTRY_METADATA.get();
+        brokerEntryMetadata.clear();
         for (BrokerEntryMetadataInterceptor interceptor : brokerInterceptors) {
             interceptor.intercept(brokerEntryMetadata);
             if (numberOfMessages >= 0) {
@@ -1961,24 +1976,37 @@ public class Commands {
         return metadata;
     }
 
-    private static final byte[] NONE_KEY = "NONE_KEY".getBytes(StandardCharsets.UTF_8);
+    public static final byte[] NONE_KEY = "NONE_KEY".getBytes(StandardCharsets.UTF_8);
+
     public static byte[] peekStickyKey(ByteBuf metadataAndPayload, String topic, String subscription) {
         try {
             int readerIdx = metadataAndPayload.readerIndex();
-            MessageMetadata metadata = Commands.parseMessageMetadata(metadataAndPayload);
+            MessageMetadata metadata = parseMessageMetadata(metadataAndPayload);
             metadataAndPayload.readerIndex(readerIdx);
-            if (metadata.hasOrderingKey()) {
-                return metadata.getOrderingKey();
-            } else if (metadata.hasPartitionKey()) {
-                if (metadata.isPartitionKeyB64Encoded()) {
-                    return Base64.getDecoder().decode(metadata.getPartitionKey());
-                }
-                return metadata.getPartitionKey().getBytes(StandardCharsets.UTF_8);
-            }
+            return resolveStickyKey(metadata);
         } catch (Throwable t) {
             log.error("[{}] [{}] Failed to peek sticky key from the message metadata", topic, subscription, t);
+            return NONE_KEY;
         }
-        return Commands.NONE_KEY;
+    }
+
+    public static byte[] resolveStickyKey(MessageMetadata metadata) {
+        byte[] stickyKey;
+        if (metadata.hasOrderingKey()) {
+            stickyKey = metadata.getOrderingKey();
+        } else if (metadata.hasPartitionKey()) {
+            if (metadata.isPartitionKeyB64Encoded()) {
+                stickyKey = Base64.getDecoder().decode(metadata.getPartitionKey());
+            } else {
+                stickyKey = metadata.getPartitionKey().getBytes(StandardCharsets.UTF_8);
+            }
+        } else if (metadata.hasProducerName() && metadata.hasSequenceId()) {
+            String fallbackKey = metadata.getProducerName() + "-" + metadata.getSequenceId();
+            stickyKey = fallbackKey.getBytes(StandardCharsets.UTF_8);
+        } else {
+            stickyKey = NONE_KEY;
+        }
+        return stickyKey;
     }
 
     public static int getCurrentProtocolVersion() {
